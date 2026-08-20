@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sonógrafo — sonifica una imagen</title>
+<style>
+  :root{
+    --bg:#0a0d0f;
+    --panel:#12171a;
+    --panel-2:#161c1f;
+    --line:#232b2e;
+    --text:#e4e9ea;
+    --muted:#6b7a7d;
+    --signal:#7cffb2;
+    --signal-dim:#2f5c47;
+    --amber:#ffb86b;
+    --font-mono:'JetBrains Mono','Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --font-body:'Inter',system-ui,-apple-system,sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    min-height:100vh;
+    padding:32px 20px 80px;
+  }
+
+  .wrap{max-width:1040px;margin:0 auto;}
+
+  header{margin-bottom:28px;}
+  .eyebrow{
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--signal);
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:10px;
+  }
+  .eyebrow::before{
+    content:'';
+    width:6px;height:6px;border-radius:50%;
+    background:var(--signal);
+    box-shadow:0 0 6px var(--signal);
+    animation:blink 1.6s infinite;
+  }
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:.25;}}
+
+  h1{
+    font-family:var(--font-mono);
+    font-weight:700;
+    font-size:clamp(24px,4vw,34px);
+    margin:0 0 8px;
+    letter-spacing:-0.01em;
+  }
+  header p{
+    color:var(--muted);
+    max-width:56ch;
+    line-height:1.55;
+    font-size:14.5px;
+    margin:0;
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:20px;
+    margin-bottom:20px;
+  }
+
+  .dropzone{
+    border:1px dashed var(--line);
+    border-radius:4px;
+    padding:36px 20px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+    font-family:var(--font-mono);
+    font-size:13px;
+    color:var(--muted);
+  }
+  .dropzone:hover, .dropzone.drag{
+    border-color:var(--signal-dim);
+    background:rgba(124,255,178,0.03);
+    color:var(--text);
+  }
+  .dropzone input{display:none;}
+  .dropzone .hint{display:block;margin-top:6px;font-size:11px;color:var(--muted);}
+
+  .stage{
+    position:relative;
+    width:100%;
+    background:#000;
+    border:1px solid var(--line);
+    border-radius:4px;
+    overflow:hidden;
+    display:none;
+  }
+  .stage.active{display:block;}
+  .stage canvas{display:block;width:100%;height:auto;}
+  #imgCanvas{position:relative;z-index:1;}
+  #scanCanvas{position:absolute;top:0;left:0;z-index:2;pointer-events:none;}
+
+  .placeholder-row{
+    display:flex; align-items:center; gap:10px;
+    font-family:var(--font-mono); font-size:11px; color:var(--muted);
+    margin-top:10px;
+  }
+  .placeholder-row .swatch{width:10px;height:10px;background:var(--signal);border-radius:2px;}
+
+  .controls{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:18px;
+    margin-top:18px;
+  }
+  .field label{
+    display:flex;
+    justify-content:space-between;
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:8px;
+  }
+  .field label span.val{color:var(--signal);}
+  input[type=range]{
+    -webkit-appearance:none;
+    width:100%;
+    height:2px;
+    background:var(--line);
+    border-radius:2px;
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:12px;height:12px;
+    background:var(--signal);
+    border-radius:50%;
+    cursor:pointer;
+    box-shadow:0 0 6px rgba(124,255,178,.5);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:12px;height:12px;border:none;
+    background:var(--signal);border-radius:50%;cursor:pointer;
+  }
+
+  .checkrow{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--font-mono); font-size:11px;
+    color:var(--muted); text-transform:uppercase; letter-spacing:.04em;
+  }
+  .checkrow input{accent-color:var(--signal);}
+
+  .transport{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-top:22px;
+    flex-wrap:wrap;
+  }
+  button{
+    font-family:var(--font-mono);
+    font-size:12px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    padding:11px 20px;
+    border-radius:3px;
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    color:var(--text);
+    cursor:pointer;
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  button:hover:not(:disabled){border-color:var(--signal-dim);color:var(--signal);}
+  button.primary{
+    background:var(--signal);
+    color:#04140b;
+    border-color:var(--signal);
+    font-weight:700;
+  }
+  button.primary:hover:not(:disabled){background:#8dffbe;}
+  button:disabled{opacity:.35;cursor:not-allowed;}
+
+  .progress-wrap{
+    flex:1 1 160px;
+    height:2px;
+    background:var(--line);
+    border-radius:2px;
+    position:relative;
+    min-width:120px;
+  }
+  .progress-fill{
+    position:absolute;left:0;top:0;height:100%;
+    background:var(--signal);
+    width:0%;
+    box-shadow:0 0 6px rgba(124,255,178,.6);
+  }
+  .timecode{font-family:var(--font-mono);font-size:11px;color:var(--muted);min-width:80px;text-align:right;}
+
+  footer{
+    margin-top:26px;
+    font-family:var(--font-mono);
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.7;
+  }
+  footer b{color:var(--text);font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Instrumento de escaneo · Web Audio API</div>
+    <h1>Sonógrafo</h1>
+    <p>Convierte una imagen en sonido. Una línea recorre la imagen de izquierda a derecha; el brillo de cada fila de píxeles en esa columna controla el volumen de una frecuencia distinta, como un espectrograma tocado al revés.</p>
+  </header>
+
+  <div class="panel">
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="image/*">
+      <span id="dzText">Arrastra una imagen aquí o haz clic para elegirla</span>
+      <span class="hint">JPG, PNG, WEBP — se procesa localmente en tu navegador</span>
+    </label>
+
+    <div class="stage" id="stage">
+      <canvas id="imgCanvas"></canvas>
+      <canvas id="scanCanvas"></canvas>
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label>Duración <span class="val" id="durVal">12 s</span></label>
+        <input type="range" id="duration" min="3" max="60" step="1" value="12">
+      </div>
+      <div class="field">
+        <label>Frecuencia mínima <span class="val" id="minFreqVal">80 Hz</span></label>
+        <input type="range" id="minFreq" min="40" max="400" step="10" value="80">
+      </div>
+      <div class="field">
+        <label>Frecuencia máxima <span class="val" id="maxFreqVal">3600 Hz</span></label>
+        <input type="range" id="maxFreq" min="1000" max="8000" step="100" value="3600">
+      </div>
+      <div class="field">
+        <label>Bandas (resolución) <span class="val" id="binsVal">40</span></label>
+        <input type="range" id="bins" min="8" max="80" step="1" value="40">
+      </div>
+      <div class="field">
+        <label>Volumen <span class="val" id="volVal">70%</span></label>
+        <input type="range" id="vol" min="0" max="100" step="1" value="70">
+      </div>
+      <div class="field">
+        <div class="checkrow">
+          <input type="checkbox" id="invert">
+          <label for="invert" style="text-transform:none;margin:0;">invertir brillo (oscuro = fuerte)</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="primary" id="playBtn" disabled>Reproducir</button>
+      <button id="stopBtn" disabled>Detener</button>
+      <div class="progress-wrap"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="timecode" id="timecode">00:00 / 00:00</div>
+    </div>
+  </div>
+
+  <footer>
+    <div><b>Cómo funciona:</b> la imagen se divide en columnas de píxeles. Al pasar el cursor por una columna, cada banda vertical de esa columna controla la ganancia de un osciladorAsignado a una frecuencia (escala logarítmica, agudos arriba / graves abajo). El resultado es un barrido aditivo de senoides que suena distinto según el contraste y la forma de la imagen.</div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  const dropzone   = document.getElementById('dropzone');
+  const fileInput  = document.getElementById('fileInput');
+  const dzText     = document.getElementById('dzText');
+  const stage      = document.getElementById('stage');
+  const imgCanvas  = document.getElementById('imgCanvas');
+  const scanCanvas = document.getElementById('scanCanvas');
+  const imgCtx     = imgCanvas.getContext('2d');
+  const scanCtx    = scanCanvas.getContext('2d');
+
+  const durationEl = document.getElementById('duration');
+  const minFreqEl  = document.getElementById('minFreq');
+  const maxFreqEl  = document.getElementById('maxFreq');
+  const binsEl     = document.getElementById('bins');
+  const volEl      = document.getElementById('vol');
+  const invertEl   = document.getElementById('invert');
+
+  const durVal = document.getElementById('durVal');
+  const minFreqVal = document.getElementById('minFreqVal');
+  const maxFreqVal = document.getElementById('maxFreqVal');
+  const binsVal = document.getElementById('binsVal');
+  const volVal = document.getElementById('volVal');
+
+  const playBtn = document.getElementById('playBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const progressFill = document.getElementById('progressFill');
+  const timecode = document.getElementById('timecode');
+
+  let img = null;
+  let imageData = null;   // pixel data of the (downscaled) working canvas
+  let workW = 0, workH = 0;
+
+  let audioCtx = null;
+  let oscillators = [];   // { osc, gain }
+  let masterGain = null;
+  let compressor = null;
+  let playing = false;
+  let startTime = 0;
+  let rafId = null;
+
+  // ---------- UI: sliders ----------
+  function syncLabels(){
+    durVal.textContent = durationEl.value + ' s';
+    minFreqVal.textContent = minFreqEl.value + ' Hz';
+    maxFreqVal.textContent = maxFreqEl.value + ' Hz';
+    binsVal.textContent = binsEl.value;
+    volVal.textContent = volEl.value + '%';
+  }
+  [durationEl,minFreqEl,maxFreqEl,binsEl,volEl].forEach(el=>{
+    el.addEventListener('input', ()=>{
+      syncLabels();
+      if(masterGain && el===volEl){
+        masterGain.gain.setTargetAtTime(volEl.value/100 * 0.9, audioCtx.currentTime, 0.02);
+      }
+    });
+  });
+  syncLabels();
+
+  // ---------- File loading ----------
+  dropzone.addEventListener('click', (e)=>{ if(e.target!==fileInput) fileInput.click(); });
+  fileInput.addEventListener('change', e=>{
+    if(e.target.files[0]) loadImage(e.target.files[0]);
+  });
+  ['dragover','dragenter'].forEach(evt=>{
+    dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(evt=>{
+    dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', e=>{
+    const f = e.dataTransfer.files[0];
+    if(f && f.type.startsWith('image/')) loadImage(f);
+  });
+
+  function loadImage(file){
+    stopPlayback();
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = ()=>{
+      img = im;
+      dzText.textContent = file.name + ' — cargada';
+      setupCanvas();
+      stage.classList.add('active');
+      playBtn.disabled = false;
+      URL.revokeObjectURL(url);
+    };
+    im.onerror = ()=>{ dzText.textContent = 'No se pudo cargar esa imagen.'; };
+    im.src = url;
+  }
+
+  function setupCanvas(){
+    // work at a modest internal resolution for audio sampling accuracy/perf,
+    // but display scaled via CSS (width:100%)
+    const maxW = 640;
+    const scale = Math.min(1, maxW / img.width);
+    workW = Math.max(1, Math.round(img.width * scale));
+    workH = Math.max(1, Math.round(img.height * scale));
+
+    [imgCanvas, scanCanvas].forEach(c=>{ c.width = workW; c.height = workH; });
+
+    imgCtx.drawImage(img, 0, 0, workW, workH);
+    imageData = imgCtx.getImageData(0, 0, workW, workH);
+    scanCtx.clearRect(0,0,workW,workH);
+  }
+
+  // ---------- Audio engine ----------
+  function ensureAudio(){
+    if(audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    compressor = audioCtx.createDynamicsCompressor();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0; // ramp up on play
+    masterGain.connect(compressor);
+    compressor.connect(audioCtx.destination);
+  }
+
+  function buildOscillators(numBins, minF, maxF){
+    teardownOscillators();
+    const now = audioCtx.currentTime;
+    for(let i=0;i<numBins;i++){
+      // log scale, index 0 = lowest freq
+      const t = numBins===1 ? 0 : i/(numBins-1);
+      const freq = minF * Math.pow(maxF/minF, t);
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const g = audioCtx.createGain();
+      g.gain.value = 0;
+      osc.connect(g);
+      g.connect(masterGain);
+      osc.start(now);
+      oscillators.push({osc, gain:g, freq});
+    }
+  }
+
+  function teardownOscillators(){
+    oscillators.forEach(o=>{
+      try{ o.osc.stop(); }catch(e){}
+      try{ o.osc.disconnect(); }catch(e){}
+      try{ o.gain.disconnect(); }catch(e){}
+    });
+    oscillators = [];
+  }
+
+  // sample one column of the image, split into numBins vertical bands,
+  // return average brightness [0,1] per band, band 0 = TOP of image (assigned to highest freq)
+  function sampleColumn(x, numBins){
+    const data = imageData.data;
+    const bandH = workH / numBins;
+    const result = new Array(numBins).fill(0);
+    for(let b=0;b<numBins;b++){
+      const y0 = Math.floor(b*bandH);
+      const y1 = Math.max(y0+1, Math.floor((b+1)*bandH));
+      let sum = 0, count = 0;
+      for(let y=y0;y<y1;y++){
+        const idx = (y*workW + x) * 4;
+        const r = data[idx], g = data[idx+1], bch = data[idx+2];
+        sum += (0.299*r + 0.587*g + 0.114*bch) / 255;
+        count++;
+      }
+      result[b] = count ? sum/count : 0;
+    }
+    return result;
+  }
+
+  function fmtTime(s){
+    const m = Math.floor(s/60);
+    const sec = Math.floor(s%60);
+    return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+  }
+
+  function startPlayback(){
+    if(!imageData) return;
+    ensureAudio();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+
+    const numBins = parseInt(binsEl.value,10);
+    const minF = parseFloat(minFreqEl.value);
+    const maxF = parseFloat(maxFreqEl.value);
+    const duration = parseFloat(durationEl.value);
+    const vol = volEl.value/100 * 0.9;
+    const invert = invertEl.checked;
+
+    buildOscillators(numBins, minF, maxF);
+    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    masterGain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + 0.05);
+
+    playing = true;
+    startTime = audioCtx.currentTime;
+    playBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    scanCtx.clearRect(0,0,workW,workH);
+
+    function frame(){
+      if(!playing) return;
+      const elapsed = audioCtx.currentTime - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const x = Math.min(workW-1, Math.floor(progress * workW));
+
+      const brightness = sampleColumn(x, numBins);
+      const now = audioCtx.currentTime;
+      for(let i=0;i<numBins;i++){
+        // band 0 (top of image) -> highest frequency -> last oscillator index
+        const bandVal = brightness[numBins-1-i];
+        const level = invert ? (1-bandVal) : bandVal;
+        // gentle curve so quiet bands aren't silent-harsh, cap per-band gain
+        const target = Math.pow(level, 1.4) * (1/Math.sqrt(numBins)) * 1.6;
+        oscillators[i].gain.gain.setTargetAtTime(target, now, 0.03);
+      }
+
+      drawScanLine(x, progress);
+      progressFill.style.width = (progress*100)+'%';
+      timecode.textContent = fmtTime(elapsed)+' / '+fmtTime(duration);
+
+      if(progress >= 1){
+        stopPlayback();
+        return;
+      }
+      rafId = requestAnimationFrame(frame);
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function drawScanLine(x, progress){
+    scanCtx.clearRect(0,0,workW,workH);
+    // phosphor trail
+    const grad = scanCtx.createLinearGradient(x-40,0,x,0);
+    grad.addColorStop(0,'rgba(124,255,178,0)');
+    grad.addColorStop(1,'rgba(124,255,178,0.25)');
+    scanCtx.fillStyle = grad;
+    scanCtx.fillRect(Math.max(0,x-40),0,40,workH);
+
+    scanCtx.strokeStyle = '#7cffb2';
+    scanCtx.lineWidth = 1.5;
+    scanCtx.shadowColor = '#7cffb2';
+    scanCtx.shadowBlur = 8;
+    scanCtx.beginPath();
+    scanCtx.moveTo(x+0.5,0);
+    scanCtx.lineTo(x+0.5,workH);
+    scanCtx.stroke();
+    scanCtx.shadowBlur = 0;
+  }
+
+  function stopPlayback(){
+    playing = false;
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    if(masterGain && audioCtx){
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+      setTimeout(teardownOscillators, 150);
+    }
+    playBtn.disabled = false;
+    stopBtn.disabled = true;
+    if(imageData){
+      scanCtx.clearRect(0,0,workW,workH);
+    }
+  }
+
+  playBtn.addEventListener('click', startPlayback);
+  stopBtn.addEventListener('click', stopPlayback);
+})();
+</script>
+</body>
+</html>
